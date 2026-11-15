@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>COSMIC TRACE · Solar System prototype</title>
+<style>
+:root{--bg:#04050c;--glass:rgba(12,16,34,.62);--line:rgba(150,170,255,.22);--fg:#e8ecff;--muted:#9aa4c7;--accent:#ffb24a;--acc2:#8f7bff;color-scheme:dark;box-sizing:border-box}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;overflow:hidden}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.glass{background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--line);border-radius:14px}
+#top{position:fixed;left:12px;right:12px;top:calc(env(safe-area-inset-top,0px) + 10px);display:flex;align-items:center;gap:12px;padding:8px 14px;z-index:5}
+#top b{letter-spacing:.22em;font-size:.9rem}
+#top span{color:var(--muted);font-size:.78rem}
+#left{position:fixed;left:12px;top:calc(env(safe-area-inset-top,0px) + 66px);padding:8px;display:flex;flex-direction:column;gap:4px;z-index:5;max-height:55vh;overflow:auto}
+button{font:inherit;color:var(--fg);background:transparent;border:1px solid transparent;border-radius:8px;padding:6px 12px;cursor:pointer;text-align:left}
+button:hover{background:rgba(143,123,255,.18)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+button.on{border-color:var(--accent);background:rgba(255,178,74,.12)}
+#info{position:fixed;right:12px;top:calc(env(safe-area-inset-top,0px) + 66px);width:min(300px,calc(100vw - 150px));padding:14px;z-index:5;font-size:.85rem;max-height:60vh;overflow:auto}
+#info h2{margin:0 0 2px;font-size:1.2rem;color:var(--accent)}
+#info dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:10px 0}
+#info dt{color:var(--muted)}#info dd{margin:0;text-align:right}
+#info p{color:var(--muted);font-size:.75rem;margin:8px 0 0;line-height:1.45}
+#bar{position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 10px);padding:8px 12px;display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;z-index:5;font-size:.82rem}
+#bar .sp{flex:1}
+#date{font-variant-numeric:tabular-nums;color:var(--accent)}
+#note{position:fixed;left:12px;right:12px;bottom:calc(env(safe-area-inset-bottom,0px) + 74px);text-align:center;color:var(--muted);font-size:.7rem;pointer-events:none;z-index:4}
+#err{position:fixed;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:24px;z-index:9}
+@media (max-width:640px){#top span{display:none}#left{flex-direction:row;flex-wrap:wrap;max-width:calc(100vw - 24px)}#info{top:auto;bottom:calc(env(safe-area-inset-bottom,0px) + 112px);width:calc(100vw - 24px);max-height:34vh}#note{display:none}}
+</style>
+</head>
+<body>
+<div id="top" class="glass"><b>COSMIC TRACE</b><span>Solar System · prototype</span></div>
+<div id="left" class="glass" role="toolbar" aria-label="Select a body"></div>
+<aside id="info" class="glass" aria-live="polite"></aside>
+<div id="note">Drag to rotate · scroll or pinch to zoom · click a planet</div>
+<div id="bar" class="glass">
+  <button id="reset">Overview</button>
+  <button class="sp-btn" data-s="0">⏸ Pause</button>
+  <button data-s="1">1 day/s</button>
+  <button data-s="10">10 days/s</button>
+  <button data-s="100">100 days/s</button>
+  <button id="today">Today</button>
+  <span class="sp"></span>
+  <span id="date"></span>
+</div>
+<div id="err" class="glass">WebGL is not available on this device or browser, so the 3D view cannot start.</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// JPL "Keplerian Elements for Approximate Positions of the Major Planets", Table 1 (1800–2050 CE).
+// [a, a’, e, e’, I, I’, L, L’, long.peri, long.peri’, long.node, long.node’]  (AU, deg; rates per Julian century)
+const PL=[
+{n:"Mercury",c:0xb4a99b,s:.5,R:"2,440 km",M:"3.30×10²³ kg",T:"88.0 days",el:[.38709927,.00000037,.20563593,.00001906,7.00497902,-.00594749,252.25032350,149472.67411175,77.45779628,.16047689,48.33076593,-.12534081]},
+{n:"Venus",c:0xe6c98f,s:.9,R:"6,052 km",M:"4.87×10²⁴ kg",T:"224.7 days",el:[.72333566,.0000039,.00677672,-.00004107,3.39467605,-.0007889,181.9790995,58517.81538729,131.60246718,.00268329,76.67984255,-.27769418]},
+{n:"Earth",c:0x4f8cff,s:1,R:"6,371 km",M:"5.97×10²⁴ kg",T:"365.26 days",el:[1.00000261,.00000562,.01671123,-.00004392,-.00001531,-.01294668,100.46457166,35999.37244981,102.93768193,.32327364,0,0]},
+{n:"Mars",c:0xd2623a,s:.7,R:"3,390 km",M:"6.42×10²³ kg",T:"687.0 days",el:[1.52371034,.00001847,.0933941,.00007882,1.84969142,-.00813131,-4.55343205,19140.30268499,-23.94362959,.44441088,49.55953891,-.29257343]},
+{n:"Jupiter",c:0xd9b38c,s:2.2,R:"69,911 km",M:"1.90×10²⁷ kg",T:"11.86 years",el:[5.202887,-.00011607,.04838624,-.00013253,1.30439695,-.00183714,34.39644051,3034.74612775,14.72847983,.21252668,100.47390909,.20469106]},
+{n:"Saturn",c:0xe3d2a0,s:1.9,R:"58,232 km",M:"5.68×10²⁶ kg",T:"29.46 years",rings:1,el:[9.53667594,-.0012506,.05386179,-.00050991,2.48599187,.00193609,49.95424423,1222.49362201,92.59887831,-.41897216,113.66242448,-.28867794]},
+{n:"Uranus",c:0x9fe0e6,s:1.4,R:"25,362 km",M:"8.68×10²⁵ kg",T:"84.01 years",el:[19.18916464,-.00196176,.04725744,-.00004397,.77263783,-.00242939,313.23810451,428.48202785,170.9542763,.40805281,74.01692503,.04240589]},
+{n:"Neptune",c:0x4b6dff,s:1.4,R:"24,622 km",M:"1.02×10²⁶ kg",T:"164.8 years",el:[30.06992276,.00026291,.00859048,.00005105,1.77004347,.00035372,-55.12002969,218.45945325,44.96476227,-.32241464,131.78422574,-.00508664]}
+];
+const D=Math.PI/180, SC=12;
+let renderer;
+try{renderer=new THREE.WebGLRenderer({antialias:true});}catch(e){document.getElementById("err").style.display="flex";throw e;}
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+document.body.prepend(renderer.domElement);
+const scene=new THREE.Scene(), cam=new THREE.PerspectiveCamera(50,innerWidth/innerHeight,.1,5000);
+
+// Procedural decorative starfield (NOT catalogued stars)
+{const n=4000,p=new Float32Array(n*3);for(let i=0;i<n;i++){const r=900+Math.random()*900,u=Math.random()*2-1,t=Math.random()*6.283,q=Math.sqrt(1-u*u);p[i*3]=r*q*Math.cos(t);p[i*3+1]=r*u;p[i*3+2]=r*q*Math.sin(t);}
+const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(p,3));
+scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0xcfd8ff,size:1.6,sizeAttenuation:false,transparent:true,opacity:.8})));}
+
+// Sun
+const sun=new THREE.Mesh(new THREE.SphereGeometry(3,48,32),new THREE.MeshBasicMaterial({color:0xffc46b}));scene.add(sun);
+{const c=document.createElement("canvas");c.width=c.height=128;const x=c.getContext("2d"),g=x.createRadialGradient(64,64,0,64,64,64);
+g.addColorStop(0,"rgba(255,200,110,.9)");g.addColorStop(.3,"rgba(255,160,60,.35)");g.addColorStop(1,"rgba(255,140,40,0)");x.fillStyle=g;x.fillRect(0,0,128,128);
+const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),blending:THREE.AdditiveBlending,depthWrite:false}));s.scale.set(26,26,1);sun.add(s);}
+scene.add(new THREE.PointLight(0xfff0dd,1.6,0,0));
+scene.add(new THREE.AmbientLight(0x303a66,.55));
+
+// Orbital mechanics
+const jd=d=>d/86400000+2440587.5;
+function elAt(el,T){return{a:el[0]+el[1]*T,e:el[2]+el[3]*T,I:(el[4]+el[5]*T)*D,L:el[6]+el[7]*T,w:el[8]+el[9]*T,O:(el[10]+el[11]*T)*D};}
+function xyz(k,E){const xp=k.a*(Math.cos(E)-k.e),yp=k.a*Math.sqrt(1-k.e*k.e)*Math.sin(E),w=(k.w*D)-k.O,cw=Math.cos(w),sw=Math.sin(w),cO=Math.cos(k.O),sO=Math.sin(k.O),cI=Math.cos(k.I),sI=Math.sin(k.I);
+return[(cw*cO-sw*sO*cI)*xp+(-sw*cO-cw*sO*cI)*yp,(cw*sO+sw*cO*cI)*xp+(-sw*sO+cw*cO*cI)*yp,sw*sI*xp+cw*sI*yp];}
+function helio(el,T){const k=elAt(el,T);let M=((k.L-k.w)%360+540)%360-180;M*=D;let E=M+k.e*Math.sin(M);for(let i=0;i<8;i++)E-=(E-k.e*Math.sin(E)-M)/(1-k.e*Math.cos(E));return xyz(k,E);}
+function toScene(v,out){const r=Math.hypot(v[0],v[1],v[2])||1,f=SC*Math.sqrt(r)/r;return out.set(v[0]*f,v[2]*f,-v[1]*f);}
+
+const bodies=[];
+PL.forEach(p=>{
+  const m=new THREE.Mesh(new THREE.SphereGeometry(p.s,40,28),new THREE.MeshStandardMaterial({color:p.c,roughness:.9,metalness:0}));
+  if(p.rings){const r=new THREE.Mesh(new THREE.RingGeometry(p.s*1.35,p.s*2.3,96),new THREE.MeshBasicMaterial({color:0xcbb98a,side:THREE.DoubleSide,transparent:true,opacity:.55}));r.rotation.x=Math.PI/2-.47;m.add(r);}
+  scene.add(m);p.mesh=m;p.hit=p.s;bodies.push(p);
+  const pts=[],k=elAt(p.el,(jd(Date.now())-2451545)/36525);for(let i=0;i<=160;i++)pts.push(toScene(xyz(k,i/160*6.2832),new THREE.Vector3()));
+  scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),new THREE.LineBasicMaterial({color:0x7f8bd8,transparent:true,opacity:.28})));
+});
+const SUN={n:"Sun",s:3,mesh:sun,R:"695,700 km",M:"1.99×10³⁰ kg",T:"—",sun:1};
+const all=[SUN,...bodies];
+
+// Time
+let simMs=Date.now(),speed=0,last=performance.now();
+const reduce=matchMedia("(prefers-reduced-motion: reduce)").matches;
+const fmt=ms=>new Date(ms).toISOString().slice(0,10);
+
+// Camera (orbit / zoom / pick)
+const tgt=new THREE.Vector3(),goal=new THREE.Vector3();let th=.6,ph=1.1,dist=110,gd=110,sel=null;
+function select(b){sel=b;document.querySelectorAll("#left button").forEach(x=>x.classList.toggle("on",x.dataset.n===(b?b.n:"Overview")));gd=b?Math.max(b.s*6,8):110;info();}
+const left=document.getElementById("left");
+[{n:"Overview"},...all].forEach(b=>{const e=document.createElement("button");e.textContent=b.n;e.dataset.n=b.n;e.onclick=()=>select(b.n==="Overview"?null:b);left.appendChild(e);});
+document.getElementById("reset").onclick=()=>select(null);
+document.getElementById("today").onclick=()=>{simMs=Date.now();};
+document.querySelectorAll("#bar [data-s]").forEach(b=>b.onclick=()=>{speed=+b.dataset.s;document.querySelectorAll("#bar [data-s]").forEach(x=>x.classList.toggle("on",x===b));});
+const ptr=new Map();let moved=0,pd=0;
+const cv=renderer.domElement;
+cv.addEventListener("pointerdown",e=>{cv.setPointerCapture(e.pointerId);ptr.set(e.pointerId,[e.clientX,e.clientY]);moved=0;pd=ptr.size===2?dd():0;});
+cv.addEventListener("pointermove",e=>{if(!ptr.has(e.pointerId))return;const o=ptr.get(e.pointerId);const dx=e.clientX-o[0],dy=e.clientY-o[1];ptr.set(e.pointerId,[e.clientX,e.clientY]);moved+=Math.abs(dx)+Math.abs(dy);
+  if(ptr.size===1){th-=dx*.006;ph=Math.min(3,Math.max(.15,ph-dy*.006));}else if(ptr.size===2){const n=dd();if(pd)gd=dist=Math.min(600,Math.max(4,dist*pd/n));pd=n;}});
+function dd(){const a=[...ptr.values()];return Math.hypot(a[0][0]-a[1][0],a[0][1]-a[1][1])||1;}
+cv.addEventListener("pointerup",e=>{const was=ptr.size===1;ptr.delete(e.pointerId);if(was&&moved<6)pick(e);});
+cv.addEventListener("pointercancel",e=>ptr.delete(e.pointerId));
+cv.addEventListener("wheel",e=>{e.preventDefault();gd=Math.min(600,Math.max(4,gd*Math.exp(e.deltaY*.001)));},{passive:false});
+const ray=new THREE.Raycaster(),mv=new THREE.Vector2();
+function pick(e){mv.set(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1);ray.setFromCamera(mv,cam);
+  let best=null,bd=1e9;all.forEach(b=>{const p=b.mesh.position,d=ray.ray.distanceToPoint(p);const tol=Math.max(b.s*1.6,cam.position.distanceTo(p)*.025);if(d<tol){const z=cam.position.distanceTo(p);if(z<bd){bd=z;best=b;}}});if(best)select(best);}
+addEventListener("resize",()=>{renderer.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix();});
+
+// Info panel
+const infoEl=document.getElementById("info");let T0=0,earthV=[0,0,0],curV={};
+function info(){
+  if(!sel){infoEl.innerHTML="<h2>Solar System</h2><p>Select a body from the list or click one in the scene. Positions are computed for the date shown below using JPL’s approximate Keplerian elements.</p><p><b>Scale notice:</b> orbital distances are compressed (square-root scale) and planet sizes are exaggerated for visibility. Orbit directions and the planets’ angular positions follow the computed ecliptic coordinates. Stars are procedural decoration, not catalogue data. Planets use plain colours, not NASA imagery.</p>";return;}
+  const b=sel;infoEl.innerHTML=`<h2>${b.n}</h2><dl><dt>Mean radius</dt><dd>${b.R}</dd><dt>Mass</dt><dd>${b.M}</dd>${b.sun?"":`<dt>Orbital period</dt><dd>${b.T}</dd><dt>Eccentricity</dt><dd id="ecc"></dd><dt>Distance from Sun</dt><dd id="ds"></dd><dt>Distance from Earth</dt><dd id="de"></dd><dt>Light travel time</dt><dd id="lt"></dd>`}</dl><p>${b.sun?"The Sun holds about 99.8 % of the Solar System’s mass. This prototype shows a simple glowing sphere; it is not a model of measured solar activity.":"Distances in the live fields are real values for the displayed date (from the elements below), not the compressed scene distances. Earth’s elements are those of the Earth–Moon barycentre."}</p><p>Sources: JPL SSD “Approximate Positions of the Planets” (Table 1); radii and masses from NASA planetary fact sheets, rounded.</p>`;live();}
+function live(){if(!sel||sel.sun)return;const v=curV[sel.n],r=Math.hypot(...v),d=Math.hypot(v[0]-earthV[0],v[1]-earthV[1],v[2]-earthV[2]),q=(id,t)=>{const e=document.getElementById(id);if(e)e.textContent=t;};
+  q("ecc",elAt(sel.el,T0).e.toFixed(4));q("ds",r.toFixed(3)+" AU");q("de",sel.n==="Earth"?"—":d.toFixed(3)+" AU");q("lt",sel.n==="Earth"?"—":(d*8.3167).toFixed(1)+" min");}
+select(null);
+
+// Loop
+const tmp=new THREE.Vector3();let fc=0;
+function frame(now){
+  const dt=Math.min(.1,(now-last)/1000);last=now;
+  if(!reduce)simMs+=speed*86400000*dt;
+  T0=(jd(simMs)-2451545)/36525;
+  bodies.forEach(p=>{const v=helio(p.el,T0);curV[p.n]=v;if(p.n==="Earth")earthV=v;toScene(v,p.mesh.position);p.mesh.rotation.y+=dt*.3*(reduce?0:1);});
+  goal.copy(sel?sel.mesh.position:tmp.set(0,0,0));tgt.lerp(goal,Math.min(1,dt*5));dist+=(gd-dist)*Math.min(1,dt*4);
+  cam.position.set(tgt.x+dist*Math.sin(ph)*Math.sin(th),tgt.y+dist*Math.cos(ph),tgt.z+dist*Math.sin(ph)*Math.cos(th));cam.lookAt(tgt);
+  document.getElementById("date").textContent=fmt(simMs)+(T0<-2||T0>.5?" (outside 1800–2050 validity)":"");
+  if(++fc%12===0)live();
+  renderer.render(scene,cam);requestAnimationFrame(frame);}
+requestAnimationFrame(frame);
+</script>
+
+<!-- COSMIC TRACE ADDITIONAL MODULES -->
+
+
+<script src="./feature.js"></script>
+<script src="./nasa_live.js"></script>
+<script src="./src/main1.js"></script>
+<script src="./src/asteroids3D.js"></script>
+
+<!-- DATA SOURCES BUTTON -->
+<button id="sources-toggle" style="
+    position:fixed;
+    right:14px;
+    bottom:85px;
+    z-index:20;
+    background:rgba(12,16,34,.85);
+    border:1px solid rgba(150,170,255,.4);
+    color:#e8ecff;
+    padding:10px 14px;
+    border-radius:10px;
+    cursor:pointer;
+">
+    ⓘ Data Sources
+</button>
+
+<!-- HIDDEN DATA SOURCES PANEL -->
+<div id="sources-panel" class="glass" style="
+    display:none;
+    position:fixed;
+    z-index:19;
+    right:14px;
+    bottom:135px;
+    width:min(390px,calc(100vw - 28px));
+    max-height:65vh;
+    overflow-y:auto;
+    padding:20px;
+    color:#e8ecff;
+    font-size:13px;
+">
+    <h2 style="color:#ffb24a;">Data Sources & Scientific Accuracy</h2>
+
+    <p>
+        COSMIC TRACE combines astronomical calculations,
+        scientific datasets and interactive 3D visualizations.
+    </p>
+
+    <h3>Scientific Data Sources</h3>
+    <ul>
+        <li><a href="https://api.nasa.gov/" target="_blank" rel="noopener">NASA Open APIs</a></li>
+        <li><a href="https://images.nasa.gov/" target="_blank" rel="noopener">NASA Image and Video Library</a></li>
+        <li><a href="https://ssd.jpl.nasa.gov/" target="_blank" rel="noopener">NASA/JPL Solar System Dynamics</a></li>
+        <li><a href="https://ccmc.gsfc.nasa.gov/" target="_blank" rel="noopener">NASA CCMC</a></li>
+    </ul>
+
+    <h3>Scientific Accuracy</h3>
+    <p>
+        Planetary orbital calculations use approximate orbital elements.
+        Distances are compressed and planet sizes exaggerated for visibility.
+        Procedurally generated asteroid positions are illustrative,
+        not confirmed real-time asteroid coordinates.
+    </p>
+
+    <p>
+        COSMIC TRACE is an independent educational project,
+        not an official NASA product.
+    </p>
+
+    <button id="sources-close">Close ✕</button>
+</div>
+
+<script>
+(() => {
+    const toggle = document.getElementById("sources-toggle");
+    const panel = document.getElementById("sources-panel");
+    const close = document.getElementById("sources-close");
+
+    toggle.addEventListener("click", () => {
+        panel.style.display =
+            panel.style.display === "block" ? "none" : "block";
+    });
+
+    close.addEventListener("click", () => {
+        panel.style.display = "none";
+    });
+})();
+</script>
+</body>
+</html>

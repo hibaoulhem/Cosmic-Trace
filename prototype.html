@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1, viewport-fit=cover">
+
+    <meta name="theme-color" content="#050711">
+
+    <meta name="description"
+          content="COSMIC TRACE — Explore the Solar System through an interactive 3D astronomical experience powered by NASA data.">
+
+    <title>COSMIC TRACE · Solar System Explorer</title>
+
+    <link rel="stylesheet" href="./style.css">
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        html, body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #050711;
+            color: #eaf1ff;
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        body {
+            position: relative;
+        }
+
+        #universe {
+            position: fixed;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+            z-index: 0;
+        }
+
+        #top {
+            position: fixed;
+            top: 20px;
+            left: 24px;
+            right: 24px;
+            z-index: 5;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            pointer-events: none;
+        }
+
+        #top > * {
+            pointer-events: auto;
+        }
+
+        .brand {
+            font-size: 17px;
+            font-weight: 800;
+            letter-spacing: 4px;
+        }
+
+        .subtitle {
+            margin-top: 5px;
+            font-size: 10px;
+            letter-spacing: 2px;
+            color: #8796b5;
+        }
+
+        #left {
+            position: fixed;
+            top: 110px;
+            left: 24px;
+            z-index: 5;
+            width: 210px;
+            max-height: 65vh;
+            overflow-y: auto;
+            padding: 16px;
+            border: 1px solid rgba(140, 170, 255, .18);
+            border-radius: 14px;
+            background: rgba(8, 13, 29, .76);
+            backdrop-filter: blur(14px);
+        }
+
+        #info {
+            position: fixed;
+            right: 24px;
+            top: 110px;
+            z-index: 5;
+            width: 260px;
+            max-height: 65vh;
+            overflow-y: auto;
+            padding: 18px;
+            border: 1px solid rgba(140, 170, 255, .18);
+            border-radius: 14px;
+            background: rgba(8, 13, 29, .78);
+            backdrop-filter: blur(14px);
+        }
+
+        #note {
+            position: fixed;
+            bottom: 76px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 5;
+            color: #a9b7d5;
+            font-size: 11px;
+            text-align: center;
+            pointer-events: none;
+        }
+
+        #bar {
+            position: fixed;
+            bottom: 18px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 6;
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 10px 14px;
+            border: 1px solid rgba(140, 170, 255, .2);
+            border-radius: 14px;
+            background: rgba(8, 13, 29, .86);
+            backdrop-filter: blur(14px);
+        }
+
+        button {
+            cursor: pointer;
+            border: 1px solid rgba(135, 165, 255, .3);
+            border-radius: 8px;
+            padding: 8px 12px;
+            color: #eaf1ff;
+            background: rgba(70, 100, 170, .18);
+        }
+
+        button:hover {
+            background: rgba(90, 130, 220, .35);
+        }
+
+        #err {
+            position: fixed;
+            left: 20px;
+            bottom: 20px;
+            z-index: 20;
+            color: #ff9b9b;
+            font-size: 12px;
+        }
+
+        @media (max-width: 700px) {
+            #top {
+                top: 14px;
+                left: 14px;
+                right: 14px;
+            }
+
+            #left {
+                top: 80px;
+                left: 12px;
+                width: 150px;
+                max-height: 45vh;
+                padding: 10px;
+            }
+
+            #info {
+                top: auto;
+                right: 12px;
+                bottom: 95px;
+                width: 160px;
+                max-height: 35vh;
+                padding: 10px;
+            }
+
+            #bar {
+                max-width: calc(100% - 20px);
+                flex-wrap: wrap;
+                justify-content: center;
+                bottom: 12px;
+            }
+
+            #note {
+                display: none;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <canvas id="universe"
+            aria-label="Interactive 3D Solar System"></canvas>
+
+    <header id="top">
+        <div>
+            <div class="brand">COSMIC TRACE</div>
+            <div class="subtitle">
+                AN INTERACTIVE JOURNEY THROUGH THE UNIVERSE
+            </div>
+        </div>
+    </header>
+
+    <aside id="left">
+        <h3>Solar System</h3>
+        <p>Select a celestial body to explore it.</p>
+
+        <div id="planet-list"></div>
+    </aside>
+
+    <aside id="info">
+        <h3 id="info-title">Welcome, Explorer</h3>
+        <p id="info-description">
+            Explore the Solar System in an interactive 3D environment.
+            Select a planet to discover more.
+        </p>
+        <div id="info-details"></div>
+    </aside>
+
+    <div id="note">
+        Drag to rotate · Scroll to zoom · Select a planet to explore
+    </div>
+
+    <div id="bar">
+        <button type="button" id="play-button">Pause</button>
+        <button type="button" id="reset-button">Reset View</button>
+        <button type="button" id="speed-button">Speed: 1×</button>
+    </div>
+
+    <div id="err" role="alert"></div>
+
+    <!-- Three.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <!-- Your original 3D Solar System engine -->
+    <script src="./main.js"></script>
+
+    <!-- NASA data integration -->
+    <script src="./cosmic-trace-data.js"></script>
+
+    <!-- Additional NASA features -->
+    <script src="./cosmic-trace-features.js"></script>
+
+</body>
+</html>
